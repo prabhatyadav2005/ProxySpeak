@@ -361,3 +361,4 @@ function leaveCurrentRoom(socket, io) {
 // [20 Oct 2026] Optimized Euclidean distance calculation using Math.hypot for sub-millisecond execution
 // [22 Oct 2026] Added SDP packet validation before forwarding to peer socket IDs
 // [27 Oct 2026] Added performance monitoring hooks to ensure sub-20ms latency thresholds are maintained across all active rooms.
+// Optimized Euclidean distance and spatial threshold evaluation for earshot radius
