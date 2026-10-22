@@ -362,3 +362,4 @@ function leaveCurrentRoom(socket, io) {
 // [22 Oct 2026] Added SDP packet validation before forwarding to peer socket IDs
 // [27 Oct 2026] Added performance monitoring hooks to ensure sub-20ms latency thresholds are maintained across all active rooms.
 // Optimized Euclidean distance and spatial threshold evaluation for earshot radius
+// WebRTC SDP offer, answer, and ICE candidate bidirectional routing pipeline
