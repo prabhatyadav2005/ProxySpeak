@@ -164,16 +164,19 @@ module.exports = function initSignalingEngine(io) {
       const { x, y } = coordinates || {};
       if (typeof x !== 'number' || typeof y !== 'number') return;
 
-      // Update in-memory coordinates
-      socket.userData.x = x;
-      socket.userData.y = y;
+      // Clamp coordinates within room boundary limits
+      const boundedX = Math.max(0, Math.min(2000, x));
+      const boundedY = Math.max(0, Math.min(1200, y));
 
-      // Broadcast new position to other peers in room for visual avatar updates
+      socket.userData.x = boundedX;
+      socket.userData.y = boundedY;
+
+      // Broadcast new position to peers
       socket.to(roomId).emit('player-moved', {
         socketId: socket.id,
         userId: socket.userData.userId,
-        x,
-        y
+        x: boundedX,
+        y: boundedY
       });
 
       // Execute Proximity Query Engine
