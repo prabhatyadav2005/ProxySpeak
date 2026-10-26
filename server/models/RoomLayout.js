@@ -1,9 +1,5 @@
 const mongoose = require('mongoose');
 
-/**
- * FurnitureItem Sub-Schema
- * Represents obstacles, tables, audio zones, or interactive items inside a virtual room.
- */
 const FurnitureItemSchema = new mongoose.Schema(
   {
     id: {
@@ -39,7 +35,6 @@ const FurnitureItemSchema = new mongoose.Schema(
       type: Number,
       default: 0
     },
-    // Optional audio attenuation factor (e.g. walls/partitions dampening sound)
     audioDampeningFactor: {
       type: Number,
       default: 0.0,
@@ -50,10 +45,6 @@ const FurnitureItemSchema = new mongoose.Schema(
   { _id: false }
 );
 
-/**
- * RoomLayout Schema
- * Member 2 Deliverable (Week 4): Build REST/socket endpoints to store and retrieve room layouts & furniture coordinates
- */
 const RoomLayoutSchema = new mongoose.Schema(
   {
     roomId: {
@@ -88,11 +79,11 @@ const RoomLayoutSchema = new mongoose.Schema(
     audioSettings: {
       proximityRadius: {
         type: Number,
-        default: 100 // 100 pixels threshold for WebRTC audio connect
+        default: 100
       },
       maxAudibleDistance: {
         type: Number,
-        default: 250 // Max distance before audio falls to zero
+        default: 250
       }
     },
     furniture: [FurnitureItemSchema]
@@ -103,4 +94,3 @@ const RoomLayoutSchema = new mongoose.Schema(
 );
 
 module.exports = mongoose.model('RoomLayout', RoomLayoutSchema);
-// [23 Oct 2026] Configured default audio attenuation dampening factors for physical obstacles

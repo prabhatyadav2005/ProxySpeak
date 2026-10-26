@@ -24,28 +24,26 @@ ProxySpeak is a real-time, proximity-based spatial audio platform that brings na
 
 ---
 
-## 📡 Member 2 Deliverables: Signaling Server & Proximity Engine
-**Branch:** `feature/socket-signaling`  
-**Role:** Member 2 — The Postman (Signaling Server, Socket.io & MongoDB Engine)
+## 📡 Backend Signaling & Proximity Server
 
-### 📂 File Ownership
-- `server/index.js` - Express & Socket.io server with CORS, health check, and Redis Pub/Sub adapter.
-- `server/sockets/signaling.js` - Low-latency coordinate tracking, 100px proximity calculation, and WebRTC SDP/ICE relay.
-- `server/models/UserSession.js` - MongoDB schema with 2D Geospatial indexing (`2dsphere`).
+The backend infrastructure manages real-time spatial coordinates, 100px proximity calculations, and WebRTC signaling routing.
+
+### Components
+- `server/index.js` - Express and Socket.io server with CORS and Redis adapter support.
+- `server/sockets/signaling.js` - Real-time coordinate synchronization, proximity detection, and WebRTC SDP/ICE relay.
+- `server/models/UserSession.js` - MongoDB user session schema with 2dsphere geospatial indexing.
 - `server/models/RoomLayout.js` - Room layout and furniture coordinate schema.
 - `server/routes/rooms.js` - REST endpoints for room layouts.
 
-### ⏱️ Performance & Testing
-- **Latency Benchmark:** Spatial calculations run under **0.35ms** (far exceeding the sub-20ms SLA requirement).
-- **Proximity Threshold:** Automatically triggers WebRTC audio handshake when peers step within **100 pixels**.
-- **Interactive Visual Client:** Visit `http://localhost:5000` to test 2D spatial movement and WebRTC signaling live.
+### Running Locally
 
 ```bash
-# Run unit & benchmark tests
+# Install dependencies
+npm install
+
+# Run tests
 npm test
 
-# Start the server locally
+# Start server
 npm start
 ```
-
-<!-- [26 Oct 2026] Finalized review documentation and socket event specifications for Mid-Review -->

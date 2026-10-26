@@ -2,19 +2,13 @@ const express = require('express');
 const router = express.Router();
 const RoomLayout = require('../models/RoomLayout');
 
-/**
- * Member 2 Deliverable (Week 4):
- * Build REST endpoints to store and retrieve room layouts and furniture coordinates.
- */
-
-// GET /api/rooms/:roomId/layout - Fetch room configuration and furniture
+// Get room configuration and furniture
 router.get('/:roomId/layout', async (req, res) => {
   try {
     const { roomId } = req.params;
     let layout = await RoomLayout.findOne({ roomId });
 
     if (!layout) {
-      // Create a default starter layout if none exists
       layout = await RoomLayout.create({
         roomId,
         name: `Room ${roomId}`,
@@ -33,12 +27,11 @@ router.get('/:roomId/layout', async (req, res) => {
       layout
     });
   } catch (err) {
-    console.error('[REST Error] GET /api/rooms/:roomId/layout:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// POST /api/rooms/:roomId/layout - Save or update room layout and furniture coordinates
+// Save or update room layout
 router.post('/:roomId/layout', async (req, res) => {
   try {
     const { roomId } = req.params;
@@ -60,16 +53,14 @@ router.post('/:roomId/layout', async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Room layout saved successfully',
       layout: updatedLayout
     });
   } catch (err) {
-    console.error('[REST Error] POST /api/rooms/:roomId/layout:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// GET /api/rooms - List all available rooms
+// List rooms
 router.get('/', async (req, res) => {
   try {
     const rooms = await RoomLayout.find({}, 'roomId name dimensions createdAt').lean();
@@ -80,4 +71,3 @@ router.get('/', async (req, res) => {
 });
 
 module.exports = router;
-// [25 Oct 2026] Added route parameter validation and JSON schema checks for layout storage

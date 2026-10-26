@@ -1,10 +1,5 @@
 const mongoose = require('mongoose');
 
-/**
- * UserSession Schema
- * Member 2 Deliverable: Setup MongoDB schemas using 2D Geospatial indexes (2dsphere)
- * Represents active user presence, location, and room association.
- */
 const UserSessionSchema = new mongoose.Schema(
   {
     socketId: {
@@ -21,14 +16,13 @@ const UserSessionSchema = new mongoose.Schema(
     username: {
       type: String,
       required: true,
-      default: 'Anonymous User'
+      default: 'Anonymous'
     },
     roomId: {
       type: String,
       required: true,
       index: true
     },
-    // GeoJSON Point for 2D Geospatial Queries ($near, $geoWithin)
     location: {
       type: {
         type: String,
@@ -37,7 +31,7 @@ const UserSessionSchema = new mongoose.Schema(
         required: true
       },
       coordinates: {
-        type: [Number], // [x, y] coordinates in 2D space
+        type: [Number],
         required: true,
         default: [0, 0]
       }
@@ -56,19 +50,10 @@ const UserSessionSchema = new mongoose.Schema(
   }
 );
 
-// 2D Geospatial Index for high-performance spatial queries
 UserSessionSchema.index({ location: '2dsphere' });
 UserSessionSchema.index({ roomId: 1, active: 1 });
 
-/**
- * Find peers within proximity radius using MongoDB $near / $maxDistance
- * @param {string} roomId
- * @param {number} x
- * @param {number} y
- * @param {number} maxDistancePixels
- * @param {string} excludeSocketId
- */
-UserSessionSchema.statics.findPeersNearby = function (roomId, x, y, maxDistancePixels = 100, excludeSocketId = null) {
+UserSessionSchema.statics.findPeersNearby = function (roomId, x, y, maxDistance = 100, excludeSocketId = null) {
   const query = {
     roomId,
     active: true,
@@ -78,7 +63,7 @@ UserSessionSchema.statics.findPeersNearby = function (roomId, x, y, maxDistanceP
           type: 'Point',
           coordinates: [x, y]
         },
-        $maxDistance: maxDistancePixels
+        $maxDistance: maxDistance
       }
     }
   };
@@ -91,5 +76,3 @@ UserSessionSchema.statics.findPeersNearby = function (roomId, x, y, maxDistanceP
 };
 
 module.exports = mongoose.model('UserSession', UserSessionSchema);
-// [18 Oct 2026] Optimized geospatial indexing options and added schema validation for coordinates
-// [16 Oct 2026] Initialized geospatial schema draft with 2D coordinates for player presence tracking.
