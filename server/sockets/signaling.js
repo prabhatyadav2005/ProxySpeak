@@ -223,6 +223,13 @@ module.exports = function initSignalingEngine(io) {
       });
     });
 
+    // Query room participants count
+    socket.on('get-room-stats', (callback) => {
+      const roomId = socket.currentRoom;
+      const count = roomId && roomRegistry.has(roomId) ? roomRegistry.get(roomId).size : 0;
+      if (typeof callback === 'function') callback({ roomId, activeUsers: count });
+    });
+
     // =========================================================================
     // 4. DISCONNECTION & CLEANUP (Week 4 Deliverable)
     // Handles abrupt disconnection, timeout, and room switching
