@@ -67,15 +67,15 @@ if (process.env.USE_REDIS === 'true') {
   }
 }
 
-// Initialize Signaling and Proximity Engine
 initSignalingEngine(io);
 
-// =============================================================================
+
 // 4. REST ENDPOINTS & ROUTES (Week 4 Deliverable)
-// =============================================================================
+
 app.use('/api/rooms', roomsRouter);
 
 // Health check and metrics endpoint
+
 app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
@@ -88,13 +88,14 @@ app.get('/health', (req, res) => {
   });
 });
 
-// =============================================================================
+
 // 5. SERVER STARTUP & MONGODB CONNECTION
-// =============================================================================
+
 const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/proxispeak';
 
 // Start HTTP & Socket server immediately (zero-wait boot)
+
 server.listen(PORT, () => {
   console.log('====================================================');
   console.log(`  ProxiSpeak Signaling Server Active on port ${PORT}`);
