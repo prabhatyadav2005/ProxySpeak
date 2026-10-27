@@ -60,6 +60,17 @@ router.post('/:roomId/layout', async (req, res) => {
   }
 });
 
+// Delete or reset room layout
+router.delete('/:roomId/layout', async (req, res) => {
+  try {
+    const { roomId } = req.params;
+    await RoomLayout.deleteOne({ roomId });
+    res.json({ success: true, message: `Room ${roomId} layout reset to default` });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // List rooms
 router.get('/', async (req, res) => {
   try {
