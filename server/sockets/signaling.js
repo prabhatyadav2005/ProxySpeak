@@ -183,6 +183,19 @@ module.exports = function initSignalingEngine(io) {
       }
     });
 
+    // Broadcast player mute state
+    socket.on('player-mute', ({ isMuted }) => {
+      if (!socket.userData) return;
+      socket.userData.isMuted = !!isMuted;
+      const roomId = socket.currentRoom;
+      if (roomId) {
+        socket.to(roomId).emit('player-muted', {
+          socketId: socket.id,
+          isMuted: socket.userData.isMuted
+        });
+      }
+    });
+
     socket.on('leave-room', () => {
       leaveCurrentRoom(socket, io);
     });
