@@ -196,6 +196,23 @@ module.exports = function initSignalingEngine(io) {
       }
     });
 
+    // Send spatial text message to peers within proximity
+    socket.on('send-proximity-message', ({ message }, callback) => {
+      const roomId = socket.currentRoom;
+      if (!roomId || !socket.userData || !message) return;
+
+      socket.userData.nearbyPeers.forEach((peerSocketId) => {
+        io.to(peerSocketId).emit('proximity-message', {
+          senderSocketId: socket.id,
+          username: socket.userData.username,
+          message,
+          timestamp: new Date().toISOString()
+        });
+      });
+
+      if (typeof callback === 'function') callback({ success: true });
+    });
+
     socket.on('leave-room', () => {
       leaveCurrentRoom(socket, io);
     });
