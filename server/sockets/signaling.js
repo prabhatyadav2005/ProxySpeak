@@ -175,6 +175,17 @@ module.exports = function initSignalingEngine(io) {
       });
     });
 
+    // Handle peer audio stream status updates
+    socket.on('peer-audio-state', ({ isSpeaking }) => {
+      const roomId = socket.currentRoom;
+      if (!roomId || !socket.userData) return;
+      socket.userData.isSpeaking = !!isSpeaking;
+      socket.to(roomId).emit('peer-audio-state', {
+        socketId: socket.id,
+        isSpeaking: socket.userData.isSpeaking
+      });
+    });
+
     socket.on('get-room-stats', (callback) => {
       const roomId = socket.currentRoom;
       const count = roomId && roomRegistry.has(roomId) ? roomRegistry.get(roomId).size : 0;
