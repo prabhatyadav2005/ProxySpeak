@@ -186,6 +186,15 @@ module.exports = function initSignalingEngine(io) {
       });
     });
 
+    // Handle audio connection quality feedback from clients
+    socket.on('audio-quality-ping', ({ targetSocketId, latencyMs }) => {
+      if (!targetSocketId || typeof latencyMs !== 'number') return;
+      io.to(targetSocketId).emit('audio-quality-report', {
+        peerSocketId: socket.id,
+        latencyMs
+      });
+    });
+
     socket.on('get-room-stats', (callback) => {
       const roomId = socket.currentRoom;
       const count = roomId && roomRegistry.has(roomId) ? roomRegistry.get(roomId).size : 0;
