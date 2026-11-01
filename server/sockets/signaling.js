@@ -195,6 +195,20 @@ module.exports = function initSignalingEngine(io) {
       });
     });
 
+    // Handle user status indicator (away, busy, active)
+    socket.on('user-status-change', ({ status }) => {
+      const allowedStatuses = ['active', 'away', 'busy'];
+      if (!socket.userData || !allowedStatuses.includes(status)) return;
+      socket.userData.status = status;
+      const roomId = socket.currentRoom;
+      if (roomId) {
+        socket.to(roomId).emit('user-status-changed', {
+          socketId: socket.id,
+          status
+        });
+      }
+    });
+
     socket.on('get-room-stats', (callback) => {
       const roomId = socket.currentRoom;
       const count = roomId && roomRegistry.has(roomId) ? roomRegistry.get(roomId).size : 0;
