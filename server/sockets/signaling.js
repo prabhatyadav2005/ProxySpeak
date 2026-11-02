@@ -209,6 +209,17 @@ module.exports = function initSignalingEngine(io) {
       }
     });
 
+    // Relay spatial reaction emoji (thumbs up, wave, heart)
+    socket.on('player-reaction', ({ emoji }) => {
+      const roomId = socket.currentRoom;
+      if (!roomId || !socket.userData || !emoji) return;
+      socket.to(roomId).emit('player-reacted', {
+        socketId: socket.id,
+        emoji,
+        timestamp: Date.now()
+      });
+    });
+
     socket.on('get-room-stats', (callback) => {
       const roomId = socket.currentRoom;
       const count = roomId && roomRegistry.has(roomId) ? roomRegistry.get(roomId).size : 0;
