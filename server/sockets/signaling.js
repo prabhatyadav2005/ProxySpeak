@@ -220,6 +220,17 @@ module.exports = function initSignalingEngine(io) {
       });
     });
 
+    // Relay screen share active state
+    socket.on('screen-share-state', ({ isSharing }) => {
+      const roomId = socket.currentRoom;
+      if (!roomId || !socket.userData) return;
+      socket.userData.isSharingScreen = !!isSharing;
+      socket.to(roomId).emit('screen-share-changed', {
+        socketId: socket.id,
+        isSharing: socket.userData.isSharingScreen
+      });
+    });
+
     socket.on('get-room-stats', (callback) => {
       const roomId = socket.currentRoom;
       const count = roomId && roomRegistry.has(roomId) ? roomRegistry.get(roomId).size : 0;
