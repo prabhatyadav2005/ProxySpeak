@@ -231,6 +231,17 @@ module.exports = function initSignalingEngine(io) {
       });
     });
 
+    // Relay hand raise state for moderating speaking queues
+    socket.on('hand-raise-state', ({ isRaised }) => {
+      const roomId = socket.currentRoom;
+      if (!roomId || !socket.userData) return;
+      socket.userData.hasHandRaised = !!isRaised;
+      socket.to(roomId).emit('hand-raise-changed', {
+        socketId: socket.id,
+        isRaised: socket.userData.hasHandRaised
+      });
+    });
+
     socket.on('get-room-stats', (callback) => {
       const roomId = socket.currentRoom;
       const count = roomId && roomRegistry.has(roomId) ? roomRegistry.get(roomId).size : 0;
