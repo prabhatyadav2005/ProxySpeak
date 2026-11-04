@@ -4,8 +4,14 @@ import { io } from 'socket.io-client';
 import { useKeyboardMovement } from '../hooks/useKeyboardMovement';
 import HUD from './HUD';
 
-const SOCKET_SERVER_URL = 'http://localhost:5000';
-const ROOM_API_URL = 'http://localhost:5000/api/rooms/main-office/layout';
+// Dynamic backend host resolution
+const BACKEND_ORIGIN = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  ? 'http://localhost:5000'
+  : window.location.origin;
+
+const SOCKET_SERVER_URL = BACKEND_ORIGIN;
+const ROOM_API_URL = `${BACKEND_ORIGIN}/api/rooms/main-office/layout`;
+
 const EARSHOT_RADIUS = 100;
 const AVATAR_RADIUS = 14;
 const SPEED = 4;
@@ -64,6 +70,7 @@ export default function OfficeCanvas() {
   };
 
   useEffect(() => {
+    // 1. Fetch Room Layout
     fetch(ROOM_API_URL)
       .then((res) => res.json())
       .then((data) => {
@@ -71,25 +78,46 @@ export default function OfficeCanvas() {
           obstacles.current = data.layout.furniture;
         }
       })
-      .catch(() => {});
+      .catch((err) => {
+        console.warn('Backend layout unreachable, using defaults:', err.message);
+      });
 
-    const socket = io(SOCKET_SERVER_URL, { reconnectionAttempts: 5 });
+    // 2. Determine Client Role: Player A vs Player B
+    const isPeerWindow = window.location.hash === '#peer' || sessionStorage.getItem('client_role') === 'B';
+    if (isPeerWindow) {
+      sessionStorage.setItem('client_role', 'B');
+    }
+    const myPlayerName = isPeerWindow ? 'Player B' : 'Player A';
+    const myAvatarColor = isPeerWindow ? '#10b981' : '#2563eb';
+
+    // 3. Connect Socket
+    const socket = io(SOCKET_SERVER_URL, {
+      transports: ['websocket', 'polling'],
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000
+    });
     socketRef.current = socket;
 
     socket.on('connect', () => {
       setStatus('Connected');
       socket.emit('join-room', {
         roomId: DEFAULT_ROOM_ID,
-        userId: `user-${socket.id.substring(0, 5)}`,
-        username: `Player_${socket.id.substring(0, 4)}`,
+        userId: `user-${socket.id ? socket.id.substring(0, 5) : Math.random().toString(36).substring(2, 7)}`,
+        username: myPlayerName,
         initialCoordinates: { x: position.current.x, y: position.current.y },
-        avatarColor: '#2563eb'
+        avatarColor: myAvatarColor
       });
     });
 
-    socket.on('disconnect', () => setStatus('Disconnected'));
+    socket.on('connect_error', () => {
+      setStatus('Connecting...');
+    });
 
-    socket.on('room-joined', ({ self, peers: existingPeers }) => {
+    socket.on('disconnect', () => {
+      setStatus('Disconnected');
+    });
+
+    socket.on('room-joined', ({ self, peers: existingPeers = [] }) => {
       if (self) position.current = { x: self.x, y: self.y };
       existingPeers.forEach((p) => {
         peers.current.set(p.socketId, {
@@ -136,18 +164,16 @@ export default function OfficeCanvas() {
       setParticipantCount(peers.current.size + 1);
     });
 
+    // 4. Game Animation Loop
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     let animationFrameId;
 
-    // Benchmark tracking variables
-    let lastTime = performance.now();
     let frameCounter = 0;
     let lastFpsUpdate = performance.now();
 
     const gameLoop = (currentTime) => {
-      // 1. Calculate FPS
       frameCounter++;
       if (currentTime - lastFpsUpdate >= 1000) {
         const calculatedFps = Math.round((frameCounter * 1000) / (currentTime - lastFpsUpdate));
@@ -155,17 +181,16 @@ export default function OfficeCanvas() {
         frameCounter = 0;
         lastFpsUpdate = currentTime;
       }
-      lastTime = currentTime;
 
-      // 2. Physics & Controls
       let nextX = position.current.x;
       let nextY = position.current.y;
       let hasMoved = false;
 
-      if (keys.current['w'] || keys.current['arrowup']) nextY -= SPEED;
-      if (keys.current['s'] || keys.current['arrowdown']) nextY += SPEED;
-      if (keys.current['a'] || keys.current['arrowleft']) nextX -= SPEED;
-      if (keys.current['d'] || keys.current['arrowright']) nextX += SPEED;
+      const activeKeys = keys.current || {};
+      if (activeKeys['w'] || activeKeys['arrowup']) nextY -= SPEED;
+      if (activeKeys['s'] || activeKeys['arrowdown']) nextY += SPEED;
+      if (activeKeys['a'] || activeKeys['arrowleft']) nextX -= SPEED;
+      if (activeKeys['d'] || activeKeys['arrowright']) nextX += SPEED;
 
       nextX = Math.max(AVATAR_RADIUS, Math.min(canvas.width - AVATAR_RADIUS, nextX));
       nextY = Math.max(AVATAR_RADIUS, Math.min(canvas.height - AVATAR_RADIUS, nextY));
@@ -195,7 +220,7 @@ export default function OfficeCanvas() {
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // 3. Render Floor Grid
+      // Floor Grid
       ctx.strokeStyle = '#1e293b';
       ctx.lineWidth = 1;
       const gridSize = 40;
@@ -212,7 +237,7 @@ export default function OfficeCanvas() {
         ctx.stroke();
       }
 
-      // 4. Render Zones
+      // Office Zones
       OFFICE_ZONES.forEach((zone) => {
         ctx.fillStyle = zone.color;
         ctx.fillRect(zone.x, zone.y, zone.width, zone.height);
@@ -228,7 +253,7 @@ export default function OfficeCanvas() {
         ctx.fillText(zone.name.toUpperCase(), zone.x + 10, zone.y + 20);
       });
 
-      // 5. Render Obstacles
+      // Furniture Obstacles
       obstacles.current.forEach((item) => {
         ctx.fillStyle = item.type === 'stage' ? '#334155' : item.type === 'whiteboard' ? '#f1f5f9' : '#475569';
         ctx.strokeStyle = '#64748b';
@@ -242,7 +267,7 @@ export default function OfficeCanvas() {
         ctx.fillText(item.label || item.type, item.x + item.width / 2, item.y + item.height / 2 + 4);
       });
 
-      // 6. Render Local Player & Earshot Ring
+      // Local Player & Earshot Ring
       ctx.beginPath();
       ctx.arc(position.current.x, position.current.y, EARSHOT_RADIUS, 0, Math.PI * 2);
       ctx.fillStyle = 'rgba(59, 130, 246, 0.08)';
@@ -253,7 +278,7 @@ export default function OfficeCanvas() {
 
       ctx.beginPath();
       ctx.arc(position.current.x, position.current.y, AVATAR_RADIUS, 0, Math.PI * 2);
-      ctx.fillStyle = '#2563eb';
+      ctx.fillStyle = myAvatarColor;
       ctx.fill();
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = 2;
@@ -262,9 +287,9 @@ export default function OfficeCanvas() {
       ctx.font = '12px sans-serif';
       ctx.fillStyle = '#94a3b8';
       ctx.textAlign = 'center';
-      ctx.fillText('You', position.current.x, position.current.y - AVATAR_RADIUS - 6);
+      ctx.fillText(`You (${myPlayerName})`, position.current.x, position.current.y - AVATAR_RADIUS - 6);
 
-      // 7. Render Lerped Peers
+      // Remote Peers (Smooth Lerped)
       peers.current.forEach((peer, peerId) => {
         peer.x += (peer.targetX - peer.x) * LERP_FACTOR;
         peer.y += (peer.targetY - peer.y) * LERP_FACTOR;
@@ -287,10 +312,15 @@ export default function OfficeCanvas() {
         ctx.lineWidth = 2;
         ctx.stroke();
 
+        // Display clean peer name instead of raw socket IDs
+        const displayName = (peer.username && !peer.username.startsWith('Player_') && !peer.username.startsWith('user-'))
+          ? peer.username
+          : (myPlayerName === 'Player A' ? 'Player B' : 'Player A');
+
         ctx.font = '12px sans-serif';
         ctx.fillStyle = inVoice ? '#34d399' : '#cbd5e1';
         ctx.textAlign = 'center';
-        ctx.fillText(peer.username || `User ${peerId.substring(0, 4)}`, peer.x, peer.y - AVATAR_RADIUS - 6);
+        ctx.fillText(displayName, peer.x, peer.y - AVATAR_RADIUS - 6);
       });
 
       animationFrameId = requestAnimationFrame(gameLoop);
