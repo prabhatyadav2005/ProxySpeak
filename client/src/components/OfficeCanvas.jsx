@@ -2,6 +2,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { io } from 'socket.io-client';
 import { useKeyboardMovement } from '../hooks/useKeyboardMovement';
+import { useWebRTC } from '../hooks/useWebRTC';
 import HUD from './HUD';
 
 // Dynamic backend host resolution
@@ -39,6 +40,9 @@ export default function OfficeCanvas() {
   
   const keys = useKeyboardMovement();
 
+  // WebRTC Mesh & Spatial Audio Hook Integration
+  const { toggleMute, updateSpatialAudio } = useWebRTC(socketRef, position, peers);
+
   const [status, setStatus] = useState('Connecting...');
   const [isMicOn, setIsMicOn] = useState(true);
   const [participantCount, setParticipantCount] = useState(1);
@@ -46,7 +50,8 @@ export default function OfficeCanvas() {
   const [fps, setFps] = useState(60);
 
   const handleToggleMic = () => {
-    setIsMicOn((prev) => !prev);
+    const isNowActive = toggleMute();
+    setIsMicOn(isNowActive);
   };
 
   const updateCurrentZone = (px, py) => {
@@ -82,7 +87,7 @@ export default function OfficeCanvas() {
         console.warn('Backend layout unreachable, using defaults:', err.message);
       });
 
-    // 2. Determine Client Role: Player A vs Player B
+    // 2. Identify Client Role (Player A vs Player B)
     const isPeerWindow = window.location.hash === '#peer' || sessionStorage.getItem('client_role') === 'B';
     if (isPeerWindow) {
       sessionStorage.setItem('client_role', 'B');
@@ -90,7 +95,7 @@ export default function OfficeCanvas() {
     const myPlayerName = isPeerWindow ? 'Player B' : 'Player A';
     const myAvatarColor = isPeerWindow ? '#10b981' : '#2563eb';
 
-    // 3. Connect Socket
+    // 3. Initialize Socket Connection
     const socket = io(SOCKET_SERVER_URL, {
       transports: ['websocket', 'polling'],
       reconnectionAttempts: 10,
@@ -218,6 +223,11 @@ export default function OfficeCanvas() {
         }
       }
 
+      // Update Web Audio distance attenuation and stereo panning for active peers
+      activeVoicePeers.current.forEach((peerId) => {
+        updateSpatialAudio(peerId);
+      });
+
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       // Floor Grid
@@ -312,7 +322,6 @@ export default function OfficeCanvas() {
         ctx.lineWidth = 2;
         ctx.stroke();
 
-        // Display clean peer name instead of raw socket IDs
         const displayName = (peer.username && !peer.username.startsWith('Player_') && !peer.username.startsWith('user-'))
           ? peer.username
           : (myPlayerName === 'Player A' ? 'Player B' : 'Player A');

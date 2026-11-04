@@ -8,66 +8,73 @@ const ICE_SERVERS = {
   ]
 };
 
+const MAX_EARSHOT_RADIUS = 100;
+
 export function useWebRTC(socketRef, localPositionRef, peersRef) {
   const localStream = useRef(null);
-  const peerConnections = useRef(new Map());
-  
-  // Web Audio API context for Member 4's spatial processing
-  const audioCtx = useRef(null);
-  const panners = useRef(new Map()); // Map<peerSocketId, { gainNode, pannerNode }>
+  const peerConnections = useRef(new Map()); // Map<socketId, RTCPeerConnection>
+  const audioNodes = useRef(new Map());       // Map<socketId, { gainNode, pannerNode, audioEl }>
+  const audioContext = useRef(null);
 
+  // Initialize Web Audio API and Microphone
   useEffect(() => {
-    // Initialize Web Audio Context
-    audioCtx.current = new (window.AudioContext || window.webkitAudioContext)();
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (AudioContextClass) {
+      audioContext.current = new AudioContextClass();
+    }
 
-    async function initMicrophone() {
+    async function setupMicrophone() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          },
           video: false
         });
         localStream.current = stream;
       } catch (err) {
-        console.error('[WebRTC] Microphone access error:', err);
+        console.warn('[WebRTC] Microphone access denied or not found:', err.message);
       }
     }
 
-    initMicrophone();
+    setupMicrophone();
 
     return () => {
       if (localStream.current) {
         localStream.current.getTracks().forEach((track) => track.stop());
       }
-      if (audioCtx.current) {
-        audioCtx.current.close();
+      if (audioContext.current && audioContext.current.state !== 'closed') {
+        audioContext.current.close();
       }
     };
   }, []);
 
-  // Update volume and left/right pan based on real-time distances
+  // Update dynamic volume and stereo panning on position change
   const updateSpatialAudio = (peerSocketId) => {
-    const pannerObj = panners.current.get(peerSocketId);
-    const peer = peersRef.current.get(peerSocketId);
+    const nodes = audioNodes.current.get(peerSocketId);
+    const peer = peersRef.current?.get(peerSocketId);
     const local = localPositionRef.current;
 
-    if (!pannerObj || !peer || !local) return;
+    if (!nodes || !peer || !local || !audioContext.current) return;
 
     const dx = peer.x - local.x;
     const dy = peer.y - local.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
 
-    // Member 4: Distance Attenuation (Earshot radius = 100px)
-    const maxRadius = 100;
-    const volume = Math.max(0, Math.min(1, 1 - distance / maxRadius));
-    pannerObj.gainNode.gain.setValueAtTime(volume, audioCtx.current.currentTime);
+    // Linear distance volume attenuation: 1.0 (at 0px) down to 0.0 (at 100px)
+    const volume = Math.max(0, Math.min(1, 1 - distance / MAX_EARSHOT_RADIUS));
+    nodes.gainNode.gain.setValueAtTime(volume, audioContext.current.currentTime);
 
-    // Member 4: Stereo Panning (-1 = full left, +1 = full right)
-    const panValue = Math.max(-1, Math.min(1, dx / maxRadius));
-    if (pannerObj.pannerNode.pan) {
-      pannerObj.pannerNode.pan.setValueAtTime(panValue, audioCtx.current.currentTime);
+    // Stereo panning: -1.0 (peer on left) to +1.0 (peer on right)
+    const panValue = Math.max(-1, Math.min(1, dx / MAX_EARSHOT_RADIUS));
+    if (nodes.pannerNode && nodes.pannerNode.pan) {
+      nodes.pannerNode.pan.setValueAtTime(panValue, audioContext.current.currentTime);
     }
   };
 
+  // Create an RTCPeerConnection for an entering peer
   const createPeerConnection = (peerSocketId) => {
     if (peerConnections.current.has(peerSocketId)) {
       return peerConnections.current.get(peerSocketId);
@@ -75,12 +82,14 @@ export function useWebRTC(socketRef, localPositionRef, peersRef) {
 
     const pc = new RTCPeerConnection(ICE_SERVERS);
 
+    // Attach local audio track
     if (localStream.current) {
       localStream.current.getTracks().forEach((track) => {
         pc.addTrack(track, localStream.current);
       });
     }
 
+    // Exchange ICE candidates through signaling server
     pc.onicecandidate = (event) => {
       if (event.candidate && socketRef.current) {
         socketRef.current.emit('webrtc-ice-candidate', {
@@ -90,23 +99,29 @@ export function useWebRTC(socketRef, localPositionRef, peersRef) {
       }
     };
 
-    // When remote voice stream arrives, attach Member 4's spatial audio graph
+    // Handle incoming remote audio stream
     pc.ontrack = (event) => {
-      if (!audioCtx.current) return;
-      if (audioCtx.current.state === 'suspended') {
-        audioCtx.current.resume();
+      if (!audioContext.current) return;
+      if (audioContext.current.state === 'suspended') {
+        audioContext.current.resume();
       }
 
-      const source = audioCtx.current.createMediaStreamSource(event.streams[0]);
-      const gainNode = audioCtx.current.createGain();
-      const pannerNode = audioCtx.current.createStereoPanner();
+      const remoteStream = event.streams[0];
+      const audioSource = audioContext.current.createMediaStreamSource(remoteStream);
+      const gainNode = audioContext.current.createGain();
+      let pannerNode = null;
 
-      // Route: Source -> Panner -> Gain -> Speakers
-      source.connect(pannerNode);
-      pannerNode.connect(gainNode);
-      gainNode.connect(audioCtx.current.destination);
+      if (audioContext.current.createStereoPanner) {
+        pannerNode = audioContext.current.createStereoPanner();
+        audioSource.connect(pannerNode);
+        pannerNode.connect(gainNode);
+      } else {
+        audioSource.connect(gainNode);
+      }
 
-      panners.current.set(peerSocketId, { gainNode, pannerNode });
+      gainNode.connect(audioContext.current.destination);
+
+      audioNodes.current.set(peerSocketId, { gainNode, pannerNode });
       updateSpatialAudio(peerSocketId);
     };
 
@@ -114,69 +129,99 @@ export function useWebRTC(socketRef, localPositionRef, peersRef) {
     return pc;
   };
 
+  // Close and clean up a peer audio connection
   const closePeerConnection = (peerSocketId) => {
     const pc = peerConnections.current.get(peerSocketId);
     if (pc) {
       pc.close();
       peerConnections.current.delete(peerSocketId);
     }
-    panners.current.delete(peerSocketId);
+    const nodes = audioNodes.current.get(peerSocketId);
+    if (nodes) {
+      if (nodes.gainNode) nodes.gainNode.disconnect();
+      if (nodes.pannerNode) nodes.pannerNode.disconnect();
+      audioNodes.current.delete(peerSocketId);
+    }
   };
 
+  // Socket signaling listeners for WebRTC negotiation
   useEffect(() => {
     const socket = socketRef.current;
     if (!socket) return;
 
-    socket.on('peer-entered-proximity', async ({ peerSocketId, isInitiator }) => {
+    const handleProximityEnter = async ({ peerSocketId, isInitiator }) => {
       const pc = createPeerConnection(peerSocketId);
       if (isInitiator) {
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        socket.emit('webrtc-offer', { targetSocketId: peerSocketId, offer });
+        try {
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          socket.emit('webrtc-offer', { targetSocketId: peerSocketId, offer });
+        } catch (err) {
+          console.error('[WebRTC] Failed to create offer:', err);
+        }
       }
-    });
+    };
 
-    socket.on('peer-left-proximity', ({ peerSocketId }) => {
+    const handleProximityLeave = ({ peerSocketId }) => {
       closePeerConnection(peerSocketId);
-    });
+    };
 
-    socket.on('webrtc-offer', async ({ senderSocketId, offer }) => {
+    const handleOffer = async ({ senderSocketId, offer }) => {
       const pc = createPeerConnection(senderSocketId);
-      await pc.setRemoteDescription(new RTCSessionDescription(offer));
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      socket.emit('webrtc-answer', { targetSocketId: senderSocketId, answer });
-    });
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(offer));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        socket.emit('webrtc-answer', { targetSocketId: senderSocketId, answer });
+      } catch (err) {
+        console.error('[WebRTC] Failed to handle offer:', err);
+      }
+    };
 
-    socket.on('webrtc-answer', async ({ senderSocketId, answer }) => {
+    const handleAnswer = async ({ senderSocketId, answer }) => {
       const pc = peerConnections.current.get(senderSocketId);
       if (pc) {
-        await pc.setRemoteDescription(new RTCSessionDescription(answer));
+        try {
+          await pc.setRemoteDescription(new RTCSessionDescription(answer));
+        } catch (err) {
+          console.error('[WebRTC] Failed to set remote answer:', err);
+        }
       }
-    });
+    };
 
-    socket.on('webrtc-ice-candidate', async ({ senderSocketId, candidate }) => {
+    const handleIceCandidate = async ({ senderSocketId, candidate }) => {
       const pc = peerConnections.current.get(senderSocketId);
       if (pc && candidate) {
-        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        } catch (err) {
+          console.error('[WebRTC] Error adding ICE candidate:', err);
+        }
       }
-    });
+    };
+
+    socket.on('peer-entered-proximity', handleProximityEnter);
+    socket.on('peer-left-proximity', handleProximityLeave);
+    socket.on('webrtc-offer', handleOffer);
+    socket.on('webrtc-answer', handleAnswer);
+    socket.on('webrtc-ice-candidate', handleIceCandidate);
 
     return () => {
-      socket.off('peer-entered-proximity');
-      socket.off('peer-left-proximity');
-      socket.off('webrtc-offer');
-      socket.off('webrtc-answer');
-      socket.off('webrtc-ice-candidate');
+      socket.off('peer-entered-proximity', handleProximityEnter);
+      socket.off('peer-left-proximity', handleProximityLeave);
+      socket.off('webrtc-offer', handleOffer);
+      socket.off('webrtc-answer', handleAnswer);
+      socket.off('webrtc-ice-candidate', handleIceCandidate);
     };
-  }, [socketRef]);
+  }, [socketRef.current]);
 
+  // Toggle microphone state
   const toggleMute = () => {
     if (localStream.current) {
-      const track = localStream.current.getAudioTracks()[0];
-      if (track) {
-        track.enabled = !track.enabled;
-        return track.enabled;
+      const audioTracks = localStream.current.getAudioTracks();
+      if (audioTracks.length > 0) {
+        audioTracks[0].enabled = !audioTracks[0].enabled;
+        return audioTracks[0].enabled;
       }
     }
     return false;
