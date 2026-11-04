@@ -24,7 +24,7 @@ app.use(
 );
 app.use(express.json());
 
-// Serve static interactive visual test client
+// Serve static visual test client if directory exists
 app.use(express.static(path.join(__dirname, '../public')));
 
 // =============================================================================
@@ -69,13 +69,12 @@ if (process.env.USE_REDIS === 'true') {
 
 initSignalingEngine(io);
 
-
+// =============================================================================
 // 4. REST ENDPOINTS & ROUTES (Week 4 Deliverable)
-
+// =============================================================================
 app.use('/api/rooms', roomsRouter);
 
 // Health check and metrics endpoint
-
 app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
@@ -88,14 +87,44 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Root Route: Fixes "Cannot GET /" and directs traffic to Vite client
+app.get('/', (req, res) => {
+  // If request accepts HTML, redirect to Vite client or provide dashboard link
+  if (req.accepts('html')) {
+    return res.send(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>ProxiSpeak Signaling Server</title>
+          <meta http-equiv="refresh" content="1; url=http://localhost:5173" />
+          <style>
+            body { font-family: sans-serif; background: #0b0f19; color: #f8fafc; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+            .card { background: #1e293b; padding: 32px; border-radius: 10px; border: 1px solid #334155; text-align: center; max-width: 500px; }
+            h2 { color: #38bdf8; margin-top: 0; }
+            p { color: #94a3b8; font-size: 14px; }
+            a { display: inline-block; margin-top: 16px; background: #2563eb; color: #fff; text-decoration: none; padding: 10px 20px; border-radius: 6px; font-weight: bold; }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <h2>ProxiSpeak Backend Active (Port ${process.env.PORT || 5000})</h2>
+            <p>Redirecting to the interactive workspace on port 5173...</p>
+            <a href="http://localhost:5173">Open Canvas at http://localhost:5173</a>
+          </div>
+        </body>
+      </html>
+    `);
+  }
+  res.json({ status: 'running', port: PORT });
+});
 
+// =============================================================================
 // 5. SERVER STARTUP & MONGODB CONNECTION
-
+// =============================================================================
 const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/proxispeak';
 
 // Start HTTP & Socket server immediately (zero-wait boot)
-
 server.listen(PORT, () => {
   console.log('====================================================');
   console.log(`  ProxiSpeak Signaling Server Active on port ${PORT}`);
