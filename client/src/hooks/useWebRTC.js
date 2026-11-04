@@ -1,5 +1,5 @@
 // client/src/hooks/useWebRTC.js
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 const ICE_SERVERS = {
   iceServers: [
@@ -9,19 +9,24 @@ const ICE_SERVERS = {
 };
 
 const MAX_EARSHOT_RADIUS = 100;
+const TALKING_THRESHOLD = 25; // Decibel sensitivity threshold
 
 export function useWebRTC(socketRef, localPositionRef, peersRef) {
   const localStream = useRef(null);
-  const peerConnections = useRef(new Map()); // Map<socketId, RTCPeerConnection>
-  const audioNodes = useRef(new Map());       // Map<socketId, { gainNode, pannerNode, audioEl }>
+  const peerConnections = useRef(new Map());
+  const audioNodes = useRef(new Map());
   const audioContext = useRef(null);
+  const [isSpeaking, setIsSpeaking] = useState(false);
 
-  // Initialize Web Audio API and Microphone
   useEffect(() => {
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
     if (AudioContextClass) {
       audioContext.current = new AudioContextClass();
     }
+
+    let analyser;
+    let dataArray;
+    let vadIntervalId;
 
     async function setupMicrophone() {
       try {
@@ -34,6 +39,37 @@ export function useWebRTC(socketRef, localPositionRef, peersRef) {
           video: false
         });
         localStream.current = stream;
+
+        // VAD setup with AnalyserNode
+        if (audioContext.current) {
+          const micSource = audioContext.current.createMediaStreamSource(stream);
+          analyser = audioContext.current.createAnalyser();
+          analyser.fftSize = 256;
+          micSource.connect(analyser);
+
+          dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+          vadIntervalId = setInterval(() => {
+            if (!localStream.current?.getAudioTracks()[0]?.enabled) {
+              setIsSpeaking(false);
+              return;
+            }
+
+            analyser.getByteFrequencyData(dataArray);
+            let sum = 0;
+            for (let i = 0; i < dataArray.length; i++) {
+              sum += dataArray[i];
+            }
+            const average = sum / dataArray.length;
+            const speakingNow = average > TALKING_THRESHOLD;
+
+            setIsSpeaking(speakingNow);
+
+            if (socketRef.current?.connected) {
+              socketRef.current.emit('voice-activity', { isSpeaking: speakingNow });
+            }
+          }, 120);
+        }
       } catch (err) {
         console.warn('[WebRTC] Microphone access denied or not found:', err.message);
       }
@@ -42,6 +78,7 @@ export function useWebRTC(socketRef, localPositionRef, peersRef) {
     setupMicrophone();
 
     return () => {
+      if (vadIntervalId) clearInterval(vadIntervalId);
       if (localStream.current) {
         localStream.current.getTracks().forEach((track) => track.stop());
       }
@@ -51,30 +88,30 @@ export function useWebRTC(socketRef, localPositionRef, peersRef) {
     };
   }, []);
 
-  // Update dynamic volume and stereo panning on position change
   const updateSpatialAudio = (peerSocketId) => {
     const nodes = audioNodes.current.get(peerSocketId);
     const peer = peersRef.current?.get(peerSocketId);
     const local = localPositionRef.current;
 
-    if (!nodes || !peer || !local || !audioContext.current) return;
+    if (!nodes || !peer || !local || !audioContext.current) return 0;
 
     const dx = peer.x - local.x;
     const dy = peer.y - local.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
 
-    // Linear distance volume attenuation: 1.0 (at 0px) down to 0.0 (at 100px)
+    // Linear distance falloff: 100% at 0px down to 0% at 100px
     const volume = Math.max(0, Math.min(1, 1 - distance / MAX_EARSHOT_RADIUS));
     nodes.gainNode.gain.setValueAtTime(volume, audioContext.current.currentTime);
 
-    // Stereo panning: -1.0 (peer on left) to +1.0 (peer on right)
+    // Directional stereo pan (-1 to 1)
     const panValue = Math.max(-1, Math.min(1, dx / MAX_EARSHOT_RADIUS));
     if (nodes.pannerNode && nodes.pannerNode.pan) {
       nodes.pannerNode.pan.setValueAtTime(panValue, audioContext.current.currentTime);
     }
+
+    return Math.round(volume * 100);
   };
 
-  // Create an RTCPeerConnection for an entering peer
   const createPeerConnection = (peerSocketId) => {
     if (peerConnections.current.has(peerSocketId)) {
       return peerConnections.current.get(peerSocketId);
@@ -82,14 +119,12 @@ export function useWebRTC(socketRef, localPositionRef, peersRef) {
 
     const pc = new RTCPeerConnection(ICE_SERVERS);
 
-    // Attach local audio track
     if (localStream.current) {
       localStream.current.getTracks().forEach((track) => {
         pc.addTrack(track, localStream.current);
       });
     }
 
-    // Exchange ICE candidates through signaling server
     pc.onicecandidate = (event) => {
       if (event.candidate && socketRef.current) {
         socketRef.current.emit('webrtc-ice-candidate', {
@@ -99,7 +134,6 @@ export function useWebRTC(socketRef, localPositionRef, peersRef) {
       }
     };
 
-    // Handle incoming remote audio stream
     pc.ontrack = (event) => {
       if (!audioContext.current) return;
       if (audioContext.current.state === 'suspended') {
@@ -120,7 +154,6 @@ export function useWebRTC(socketRef, localPositionRef, peersRef) {
       }
 
       gainNode.connect(audioContext.current.destination);
-
       audioNodes.current.set(peerSocketId, { gainNode, pannerNode });
       updateSpatialAudio(peerSocketId);
     };
@@ -129,7 +162,6 @@ export function useWebRTC(socketRef, localPositionRef, peersRef) {
     return pc;
   };
 
-  // Close and clean up a peer audio connection
   const closePeerConnection = (peerSocketId) => {
     const pc = peerConnections.current.get(peerSocketId);
     if (pc) {
@@ -144,7 +176,6 @@ export function useWebRTC(socketRef, localPositionRef, peersRef) {
     }
   };
 
-  // Socket signaling listeners for WebRTC negotiation
   useEffect(() => {
     const socket = socketRef.current;
     if (!socket) return;
@@ -215,7 +246,6 @@ export function useWebRTC(socketRef, localPositionRef, peersRef) {
     };
   }, [socketRef.current]);
 
-  // Toggle microphone state
   const toggleMute = () => {
     if (localStream.current) {
       const audioTracks = localStream.current.getAudioTracks();
@@ -227,5 +257,5 @@ export function useWebRTC(socketRef, localPositionRef, peersRef) {
     return false;
   };
 
-  return { toggleMute, updateSpatialAudio };
+  return { toggleMute, updateSpatialAudio, isSpeaking };
 }

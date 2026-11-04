@@ -5,7 +5,6 @@ import { useKeyboardMovement } from '../hooks/useKeyboardMovement';
 import { useWebRTC } from '../hooks/useWebRTC';
 import HUD from './HUD';
 
-// Dynamic backend host resolution
 const BACKEND_ORIGIN = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
   ? 'http://localhost:5000'
   : window.location.origin;
@@ -31,17 +30,16 @@ export default function OfficeCanvas() {
   const position = useRef({ x: 400, y: 400 });
   const peers = useRef(new Map());
   const activeVoicePeers = useRef(new Set());
-  
+  const talkingPeers = useRef(new Set());
+
   const obstacles = useRef([
     { id: 'f-1', label: 'Discussion Table', type: 'table', x: 500, y: 380, width: 140, height: 80 },
     { id: 'f-2', label: 'Whiteboard', type: 'whiteboard', x: 300, y: 40, width: 180, height: 20 },
     { id: 'f-3', label: 'Presentation Stage', type: 'stage', x: 60, y: 40, width: 150, height: 90 }
   ]);
-  
-  const keys = useKeyboardMovement();
 
-  // WebRTC Mesh & Spatial Audio Hook Integration
-  const { toggleMute, updateSpatialAudio } = useWebRTC(socketRef, position, peers);
+  const keys = useKeyboardMovement();
+  const { toggleMute, updateSpatialAudio, isSpeaking } = useWebRTC(socketRef, position, peers);
 
   const [status, setStatus] = useState('Connecting...');
   const [isMicOn, setIsMicOn] = useState(true);
@@ -75,7 +73,6 @@ export default function OfficeCanvas() {
   };
 
   useEffect(() => {
-    // 1. Fetch Room Layout
     fetch(ROOM_API_URL)
       .then((res) => res.json())
       .then((data) => {
@@ -83,11 +80,8 @@ export default function OfficeCanvas() {
           obstacles.current = data.layout.furniture;
         }
       })
-      .catch((err) => {
-        console.warn('Backend layout unreachable, using defaults:', err.message);
-      });
+      .catch(() => {});
 
-    // 2. Identify Client Role (Player A vs Player B)
     const isPeerWindow = window.location.hash === '#peer' || sessionStorage.getItem('client_role') === 'B';
     if (isPeerWindow) {
       sessionStorage.setItem('client_role', 'B');
@@ -95,7 +89,6 @@ export default function OfficeCanvas() {
     const myPlayerName = isPeerWindow ? 'Player B' : 'Player A';
     const myAvatarColor = isPeerWindow ? '#10b981' : '#2563eb';
 
-    // 3. Initialize Socket Connection
     const socket = io(SOCKET_SERVER_URL, {
       transports: ['websocket', 'polling'],
       reconnectionAttempts: 10,
@@ -114,13 +107,8 @@ export default function OfficeCanvas() {
       });
     });
 
-    socket.on('connect_error', () => {
-      setStatus('Connecting...');
-    });
-
-    socket.on('disconnect', () => {
-      setStatus('Disconnected');
-    });
+    socket.on('connect_error', () => setStatus('Connecting...'));
+    socket.on('disconnect', () => setStatus('Disconnected'));
 
     socket.on('room-joined', ({ self, peers: existingPeers = [] }) => {
       if (self) position.current = { x: self.x, y: self.y };
@@ -161,15 +149,24 @@ export default function OfficeCanvas() {
 
     socket.on('peer-left-proximity', ({ peerSocketId }) => {
       activeVoicePeers.current.delete(peerSocketId);
+      talkingPeers.current.delete(peerSocketId);
+    });
+
+    socket.on('peer-voice-activity', ({ socketId, isSpeaking: speaking }) => {
+      if (speaking) {
+        talkingPeers.current.add(socketId);
+      } else {
+        talkingPeers.current.delete(socketId);
+      }
     });
 
     socket.on('player-left', ({ socketId }) => {
       peers.current.delete(socketId);
       activeVoicePeers.current.delete(socketId);
+      talkingPeers.current.delete(socketId);
       setParticipantCount(peers.current.size + 1);
     });
 
-    // 4. Game Animation Loop
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -177,9 +174,12 @@ export default function OfficeCanvas() {
 
     let frameCounter = 0;
     let lastFpsUpdate = performance.now();
+    let pulsePhase = 0;
 
     const gameLoop = (currentTime) => {
       frameCounter++;
+      pulsePhase += 0.08;
+
       if (currentTime - lastFpsUpdate >= 1000) {
         const calculatedFps = Math.round((frameCounter * 1000) / (currentTime - lastFpsUpdate));
         setFps(calculatedFps);
@@ -223,11 +223,6 @@ export default function OfficeCanvas() {
         }
       }
 
-      // Update Web Audio distance attenuation and stereo panning for active peers
-      activeVoicePeers.current.forEach((peerId) => {
-        updateSpatialAudio(peerId);
-      });
-
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       // Floor Grid
@@ -263,7 +258,7 @@ export default function OfficeCanvas() {
         ctx.fillText(zone.name.toUpperCase(), zone.x + 10, zone.y + 20);
       });
 
-      // Furniture Obstacles
+      // Furniture
       obstacles.current.forEach((item) => {
         ctx.fillStyle = item.type === 'stage' ? '#334155' : item.type === 'whiteboard' ? '#f1f5f9' : '#475569';
         ctx.strokeStyle = '#64748b';
@@ -286,6 +281,16 @@ export default function OfficeCanvas() {
       ctx.lineWidth = 1.5;
       ctx.stroke();
 
+      // Local Player Speaking Wave Animation
+      if (isSpeaking) {
+        const localPulse = Math.sin(pulsePhase) * 6;
+        ctx.beginPath();
+        ctx.arc(position.current.x, position.current.y, AVATAR_RADIUS + 8 + localPulse, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(34, 197, 94, 0.6)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+
       ctx.beginPath();
       ctx.arc(position.current.x, position.current.y, AVATAR_RADIUS, 0, Math.PI * 2);
       ctx.fillStyle = myAvatarColor;
@@ -299,19 +304,34 @@ export default function OfficeCanvas() {
       ctx.textAlign = 'center';
       ctx.fillText(`You (${myPlayerName})`, position.current.x, position.current.y - AVATAR_RADIUS - 6);
 
-      // Remote Peers (Smooth Lerped)
+      // Remote Peers Rendering with VAD & Spatial Volume Percentage
       peers.current.forEach((peer, peerId) => {
         peer.x += (peer.targetX - peer.x) * LERP_FACTOR;
         peer.y += (peer.targetY - peer.y) * LERP_FACTOR;
 
         const inVoice = activeVoicePeers.current.has(peerId);
+        const isPeerSpeaking = talkingPeers.current.has(peerId);
 
+        let volumePct = 0;
         if (inVoice) {
+          volumePct = updateSpatialAudio(peerId);
+
+          // Proximity Aura Ring
           ctx.beginPath();
           ctx.arc(peer.x, peer.y, AVATAR_RADIUS + 6, 0, Math.PI * 2);
           ctx.strokeStyle = '#10b981';
           ctx.lineWidth = 2;
           ctx.stroke();
+
+          // Peer Speaking Wave Animation
+          if (isPeerSpeaking) {
+            const peerPulse = Math.sin(pulsePhase) * 6;
+            ctx.beginPath();
+            ctx.arc(peer.x, peer.y, AVATAR_RADIUS + 12 + peerPulse, 0, Math.PI * 2);
+            ctx.strokeStyle = 'rgba(16, 185, 129, 0.7)';
+            ctx.lineWidth = 2.5;
+            ctx.stroke();
+          }
         }
 
         ctx.beginPath();
@@ -330,6 +350,13 @@ export default function OfficeCanvas() {
         ctx.fillStyle = inVoice ? '#34d399' : '#cbd5e1';
         ctx.textAlign = 'center';
         ctx.fillText(displayName, peer.x, peer.y - AVATAR_RADIUS - 6);
+
+        // Distance-based Audio Diagnostic Tag
+        if (inVoice) {
+          ctx.font = '10px sans-serif';
+          ctx.fillStyle = isPeerSpeaking ? '#4ade80' : '#64748b';
+          ctx.fillText(`🔊 ${volumePct}%`, peer.x, peer.y + AVATAR_RADIUS + 14);
+        }
       });
 
       animationFrameId = requestAnimationFrame(gameLoop);
@@ -341,7 +368,7 @@ export default function OfficeCanvas() {
       cancelAnimationFrame(animationFrameId);
       socket.disconnect();
     };
-  }, [keys]);
+  }, [keys, isSpeaking]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginTop: '20px' }}>

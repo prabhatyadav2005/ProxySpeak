@@ -2,7 +2,6 @@
 const PROXIMITY_RADIUS = 100; // 100px voice earshot threshold
 
 // In-memory session tracking
-// Map<socketId, { socketId, userId, username, roomId, x, y, avatarColor }>
 const players = new Map();
 
 function getDistance(p1, p2) {
@@ -29,7 +28,6 @@ module.exports = function initSignalingEngine(io) {
         avatarColor: avatarColor || '#2563eb'
       };
 
-      // Retrieve existing players in this room
       const existingPeers = [];
       players.forEach((p) => {
         if (p.roomId === roomId && p.socketId !== socket.id) {
@@ -37,23 +35,18 @@ module.exports = function initSignalingEngine(io) {
         }
       });
 
-      // Save player to state
       players.set(socket.id, newPlayer);
 
-      // Reply to the joining player with room state
       socket.emit('room-joined', {
         self: newPlayer,
         peers: existingPeers
       });
 
-      // Notify others in the room
       socket.to(roomId).emit('player-joined', newPlayer);
 
-      // Check proximity with existing players in the room
       existingPeers.forEach((other) => {
         const dist = getDistance(newPlayer, other);
         if (dist <= PROXIMITY_RADIUS) {
-          // Instruct caller to initiate WebRTC offer
           socket.emit('peer-entered-proximity', { peerSocketId: other.socketId, isInitiator: true });
           io.to(other.socketId).emit('peer-entered-proximity', { peerSocketId: socket.id, isInitiator: false });
         }
@@ -71,27 +64,22 @@ module.exports = function initSignalingEngine(io) {
       player.x = x;
       player.y = y;
 
-      // Broadcast position to other room members
       socket.to(player.roomId).emit('player-moved', {
         socketId: socket.id,
         x,
         y
       });
 
-      // Re-evaluate proximity thresholds
       players.forEach((other, otherId) => {
         if (otherId === socket.id || other.roomId !== player.roomId) return;
 
         const oldDist = getDistance({ x: prevX, y: prevY }, other);
         const newDist = getDistance(player, other);
 
-        // Entered 100px range
         if (oldDist > PROXIMITY_RADIUS && newDist <= PROXIMITY_RADIUS) {
           socket.emit('peer-entered-proximity', { peerSocketId: other.socketId, isInitiator: true });
           io.to(other.socketId).emit('peer-entered-proximity', { peerSocketId: socket.id, isInitiator: false });
-        }
-        // Exited 100px range
-        else if (oldDist <= PROXIMITY_RADIUS && newDist > PROXIMITY_RADIUS) {
+        } else if (oldDist <= PROXIMITY_RADIUS && newDist > PROXIMITY_RADIUS) {
           socket.emit('peer-left-proximity', { peerSocketId: other.socketId });
           io.to(other.socketId).emit('peer-left-proximity', { peerSocketId: socket.id });
         }
@@ -120,7 +108,18 @@ module.exports = function initSignalingEngine(io) {
       });
     });
 
-    // 4. Handle Disconnect
+    // 4. Voice Activity Detection (VAD) Relay
+    socket.on('voice-activity', ({ isSpeaking }) => {
+      const player = players.get(socket.id);
+      if (player) {
+        socket.to(player.roomId).emit('peer-voice-activity', {
+          socketId: socket.id,
+          isSpeaking
+        });
+      }
+    });
+
+    // 5. Handle Disconnect
     socket.on('disconnect', () => {
       console.log(`[Socket Disconnected] ID: ${socket.id}`);
       const player = players.get(socket.id);
