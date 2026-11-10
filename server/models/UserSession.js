@@ -39,7 +39,8 @@ const UserSessionSchema = new mongoose.Schema(
     }
   },
   {
-    timestamps: true
+    timestamps: true,
+    bufferCommands: false
   }
 );
 

@@ -98,7 +98,8 @@ const RoomLayoutSchema = new mongoose.Schema(
     furniture: [FurnitureItemSchema]
   },
   {
-    timestamps: true
+    timestamps: true,
+    bufferCommands: false
   }
 );
 

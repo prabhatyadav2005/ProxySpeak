@@ -12,13 +12,17 @@ const roomsRouter = require('./routes/rooms');
 const app = express();
 const server = http.createServer(app);
 
+const PORT = process.env.PORT || 5000;
+const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/proxyspeak';
+
 // =============================================================================
-// 1. CORS & MIDDLEWARE CONFIGURATION (Week 1 Deliverable)
+// 1. CORS & MIDDLEWARE CONFIGURATION
 // =============================================================================
 app.use(
   cors({
     origin: '*',
-    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
   })
 );
@@ -28,21 +32,20 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, '../public')));
 
 // =============================================================================
-// 2. SOCKET.IO SERVER WITH CORS (Week 1 Deliverable)
+// 2. SOCKET.IO SERVER WITH RESILIENT CORS & RECONNECTION SETTINGS
 // =============================================================================
 const io = new Server(server, {
   cors: {
     origin: '*',
-    methods: ['GET', 'POST'],
-    credentials: false
+    methods: ['GET', 'POST']
   },
   pingTimeout: 30000,
-  pingInterval: 10000
+  pingInterval: 10000,
+  connectTimeout: 45000
 });
 
 // =============================================================================
-// 3. CLUSTER SCALING VIA REDIS PUB/SUB (Week 3 Deliverable)
-// Allows horizontal scaling across multiple Node processes
+// 3. OPTIONAL CLUSTER SCALING VIA REDIS PUB/SUB
 // =============================================================================
 if (process.env.USE_REDIS === 'true') {
   try {
@@ -67,10 +70,11 @@ if (process.env.USE_REDIS === 'true') {
   }
 }
 
+// Initialize WebRTC and Geospatial Signaling Engine
 initSignalingEngine(io);
 
 // =============================================================================
-// 4. REST ENDPOINTS & ROUTES (Week 4 Deliverable)
+// 4. REST ENDPOINTS & ROUTES
 // =============================================================================
 app.use('/api/rooms', roomsRouter);
 
@@ -78,69 +82,76 @@ app.use('/api/rooms', roomsRouter);
 app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
-    service: 'ProxiSpeak Signaling & Geospatial Engine',
-    role: 'Member 2 - The Postman',
+    service: 'ProxySpeak Signaling & Geospatial Spatial Engine',
     version: '1.0.0',
     timestamp: new Date().toISOString(),
     uptimeSeconds: Math.floor(process.uptime()),
-    mongoConnected: mongoose.connection.readyState === 1
+    mongoConnected: mongoose.connection.readyState === 1,
+    activeConnections: io.engine.clientsCount
   });
 });
 
-// Root Route: Fixes "Cannot GET /" and directs traffic to Vite client
+// Root Route: Server info and dashboard link
 app.get('/', (req, res) => {
-  // If request accepts HTML, redirect to Vite client or provide dashboard link
   if (req.accepts('html')) {
     return res.send(`
       <!DOCTYPE html>
       <html>
         <head>
-          <title>ProxiSpeak Signaling Server</title>
-          <meta http-equiv="refresh" content="1; url=http://localhost:5173" />
+          <title>ProxySpeak Signaling Server</title>
+          <meta http-equiv="refresh" content="2; url=http://localhost:5173" />
           <style>
-            body { font-family: sans-serif; background: #0b0f19; color: #f8fafc; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-            .card { background: #1e293b; padding: 32px; border-radius: 10px; border: 1px solid #334155; text-align: center; max-width: 500px; }
-            h2 { color: #38bdf8; margin-top: 0; }
-            p { color: #94a3b8; font-size: 14px; }
-            a { display: inline-block; margin-top: 16px; background: #2563eb; color: #fff; text-decoration: none; padding: 10px 20px; border-radius: 6px; font-weight: bold; }
+            body { font-family: system-ui, -apple-system, sans-serif; background: #0b0f19; color: #f8fafc; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+            .card { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); padding: 36px; border-radius: 16px; border: 1px solid rgba(56, 189, 248, 0.2); text-align: center; max-width: 520px; box-shadow: 0 20px 40px rgba(0,0,0,0.5); }
+            h2 { color: #38bdf8; margin-top: 0; font-size: 24px; }
+            p { color: #94a3b8; font-size: 15px; line-height: 1.5; }
+            .badge { display: inline-block; padding: 4px 12px; border-radius: 9999px; background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 12px; margin-bottom: 16px; }
+            a { display: inline-block; margin-top: 20px; background: linear-gradient(135deg, #2563eb, #38bdf8); color: #fff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; box-shadow: 0 4px 14px rgba(37, 99, 235, 0.4); }
           </style>
         </head>
         <body>
           <div class="card">
-            <h2>ProxiSpeak Backend Active (Port ${process.env.PORT || 5000})</h2>
-            <p>Redirecting to the interactive workspace on port 5173...</p>
-            <a href="http://localhost:5173">Open Canvas at http://localhost:5173</a>
+            <span class="badge">● Server Active</span>
+            <h2>ProxySpeak Spatial Audio Engine</h2>
+            <p>Signaling & Geospatial Relay running on port ${PORT}. Redirecting to the React Client at http://localhost:5173...</p>
+            <a href="http://localhost:5173">Open ProxySpeak Virtual Office</a>
           </div>
         </body>
       </html>
     `);
   }
-  res.json({ status: 'running', port: PORT });
+  res.json({ status: 'running', port: PORT, service: 'ProxySpeak' });
 });
 
 // =============================================================================
 // 5. SERVER STARTUP & MONGODB CONNECTION
 // =============================================================================
-const PORT = process.env.PORT || 5000;
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/proxispeak';
-
-// Start HTTP & Socket server immediately (zero-wait boot)
 server.listen(PORT, () => {
-  console.log('====================================================');
-  console.log(`  ProxiSpeak Signaling Server Active on port ${PORT}`);
-  console.log(`  Visual Radar Client: http://localhost:${PORT}`);
-  console.log(`  Health Check:        http://localhost:${PORT}/health`);
-  console.log('====================================================');
+  console.log('========================================================');
+  console.log(`  🚀 ProxySpeak Signaling Server Active on port ${PORT}`);
+  console.log(`  🌐 Frontend URL:     ${CLIENT_URL}`);
+  console.log(`  🩺 Health Check:     http://localhost:${PORT}/health`);
+  console.log(`  📦 Room Layout API:  http://localhost:${PORT}/api/rooms`);
+  console.log('========================================================');
 });
 
-// Connect to MongoDB asynchronously
+// Connect to MongoDB asynchronously without blocking server operations
 mongoose
-  .connect(MONGO_URI, { serverSelectionTimeoutMS: 3000 })
+  .connect(MONGO_URI, { serverSelectionTimeoutMS: 2500 })
   .then(() => {
     console.log('[MongoDB] Connected successfully to Database');
   })
   .catch((err) => {
     console.warn('[MongoDB Notice] Running in in-memory mode (MongoDB offline):', err.message);
   });
+
+// Graceful shutdown handling
+process.on('SIGTERM', () => {
+  console.log('SIGTERM signal received: closing HTTP server');
+  server.close(() => {
+    mongoose.connection.close(false).catch(() => {});
+    process.exit(0);
+  });
+});
 
 module.exports = { app, server, io };
