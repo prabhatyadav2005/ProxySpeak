@@ -14,10 +14,13 @@ ProxySpeak is a high-performance, real-time, proximity-based spatial audio platf
   - Furniture collision detection (tables, stages, whiteboards).
   - Both keyboard navigation (**WASD / Arrow keys**) and **Click-to-Move** waypoint pathing.
   - Direction indicators and movement vectors for all avatars.
-- **Spatial Audio Visualizations:**
-  - Concentric audible range circles and proximity rings.
-  - Dynamic wave ripples on speaking avatars driven by real-time Web Audio Analyser RMS levels.
-  - Glowing proximity laser tethers connecting peers in earshot with real-time distance and volume percentages.
+- **Spectacular Visuals & Audio Visualizations:**
+  - **Photon Energy Laser Tethers:** Glowing neon green tethers linking peers in earshot with traveling light beads and live equalizer volume badges.
+  - **Harmonic Acoustic Shockwaves:** Multi-lobed frequency ripples expanding outward when speaking, linked to microphone volume.
+  - **360° Spatial Radar:** Top-down circular cyber radar display with sweeping beam, tracking relative peer bearings and earshot boundaries.
+  - **Energy Footstep Trails:** Fading glowing ripples beneath moving avatars.
+  - **Auditory Perception Cone:** Subtle holographic forward arc displaying the avatar's hearing orientation.
+  - **Sparkle Particle Bursts:** Radial confetti particle explosions when triggering emoji reactions.
 - **Live Room & Peer Management:**
   - Animated pre-flight Join Screen with microphone preview meter, color pulse picker, and room selector.
   - Slide-out Participants Drawer with live voice indicators and "Walk to Colleague" shortcut.
@@ -36,7 +39,7 @@ ProxySpeak is a high-performance, real-time, proximity-based spatial audio platf
 - **Audio Processing:** Web Audio API (`StereoPannerNode`, `GainNode`, `AnalyserNode`), WebRTC (`RTCPeerConnection`)
 - **Backend:** Node.js, Express, Socket.IO
 - **Database:** MongoDB (via Mongoose) with automatic in-memory fallback
-- **Scaling:** Ready for Redis Pub/Sub adapter
+- **Scaling:** Ready for Redis Pub/Sub adapter & Docker Compose
 
 ---
 
@@ -52,28 +55,33 @@ ProxySpeak/
 │   │   │   ├── JoinScreen.jsx           # Animated pre-flight lobby & mic tester
 │   │   │   ├── OfficeCanvas.jsx         # 60 FPS spatial audio game canvas
 │   │   │   ├── ParticipantsDrawer.jsx   # Slide-out peer directory
-│   │   │   └── QuickReactions.jsx       # Floating emoji reaction bar
+│   │   │   ├── QuickReactions.jsx       # Floating emoji reaction bar
+│   │   │   └── SpatialRadar.jsx         # 360-degree holographic mini-radar
 │   │   ├── hooks/
 │   │   │   ├── useKeyboardMovement.js   # Keyboard WASD/Arrow movement listener
-│   │   │   └── useWebRTC.js             # Spatial audio graph & WebRTC P2P manager
+│   │   │   └── useWebRTC.js             # Spatial audio Web Audio + WebRTC P2P manager
 │   │   ├── App.jsx                      # App root & view orchestrator
 │   │   ├── index.css                    # Futuristic dark theme & keyframes
 │   │   └── main.jsx                     # Application bootstrap
 │   ├── index.html                       # HTML5 entry with Plus Jakarta font
 │   ├── package.json
-│   └── vite.config.js
-└── server/                      # Node.js Signaling & Spatial Engine
-    ├── models/
-    │   ├── RoomLayout.js        # Room layout & furniture schema
-    │   └── UserSession.js       # Player geospatial coordinate schema
-    ├── routes/
-    │   └── rooms.js             # Room layout REST API with in-memory fallback
-    ├── sockets/
-    │   └── signaling.js         # Socket.IO & WebRTC geospatial signaling engine
-    ├── .env                     # Server environment variables
-    ├── .env.example             # Template environment variables
-    ├── index.js                 # Express server & socket bootstrap
-    └── package.json             # Backend dependencies & scripts
+│   ├── vite.config.js                   # Vite config with network host exposed
+│   └── Dockerfile                       # Multi-stage production Nginx Dockerfile
+├── server/                      # Node.js Signaling & Spatial Engine
+│   ├── models/
+│   │   ├── RoomLayout.js        # Room layout & furniture schema
+│   │   └── UserSession.js       # Player geospatial coordinate schema
+│   ├── routes/
+│   │   └── rooms.js             # Room layout REST API with in-memory fallback
+│   ├── sockets/
+│   │   └── signaling.js         # Socket.IO & WebRTC geospatial signaling engine
+│   ├── .env                     # Server environment variables
+│   ├── .env.example             # Template environment variables
+│   ├── Dockerfile               # Node.js Alpine Dockerfile
+│   ├── index.js                 # Express server & socket bootstrap
+│   └── package.json             # Backend dependencies & scripts
+├── docker-compose.yml           # Complete containerized production stack
+└── README.md
 ```
 
 ---
@@ -106,7 +114,19 @@ npm install
 npm run dev
 ```
 
-Open your browser to `http://localhost:5173`.
+Open your browser to:
+- **Local:** `http://localhost:5173`
+- **Network (Wi-Fi):** `http://192.168.29.150:5173`
+
+---
+
+### 3. Docker Deployment (Optional 1-Command Setup)
+
+To boot the entire full-stack production application with MongoDB in a single command:
+
+```bash
+docker compose up --build
+```
 
 ---
 
@@ -114,8 +134,9 @@ Open your browser to `http://localhost:5173`.
 
 To test spatial audio and proximity voice chat locally:
 
-1. Open `http://localhost:5173` in Browser Tab 1 and join as **Player A**.
-2. Open `http://localhost:5173#peer` or an Incognito window in Browser Tab 2 and join as **Player B**.
+1. Open `http://localhost:5173` in Browser Window 1 and join as **Player A**.
+2. Open `http://localhost:5173` in Browser Window 2 (or an Incognito window) and join as **Player B**.
 3. Move the avatars closer to each other on the canvas:
-   - When within **130px**, a glowing green proximity tether connects the avatars, and the distance/volume badge appears.
-   - Speak into your microphone to see dynamic animated soundwaves expanding outward and hear spatialized audio with stereo panning!
+   - When within **130px**, a glowing green **laser tether** connects the avatars with traveling light beads and a live equalizer volume badge.
+   - Speak into your microphone to see dynamic animated acoustic shockwaves and hear spatialized audio with stereo panning!
+   - Click the **Radar** button in the HUD to view the 360° spatial radar tracking all participants.
