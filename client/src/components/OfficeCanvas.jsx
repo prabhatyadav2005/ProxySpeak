@@ -19,9 +19,9 @@ const LERP_FACTOR = 0.2;
 const DEFAULT_ROOM_ID = 'main-office';
 
 const OFFICE_ZONES = [
-  { id: 'zone-lounge', name: 'Lounge Area', x: 20, y: 20, width: 230, height: 260, color: 'rgba(56, 189, 248, 0.05)', border: '#0284c7' },
-  { id: 'zone-conf', name: 'Conference Room', x: 270, y: 20, width: 510, height: 260, color: 'rgba(168, 85, 247, 0.05)', border: '#7e22ce' },
-  { id: 'zone-work', name: 'Open Workstations', x: 20, y: 300, width: 760, height: 280, color: 'rgba(34, 197, 94, 0.05)', border: '#15803d' }
+  { id: 'zone-lounge', name: 'Lounge Area', x: 20, y: 20, width: 230, height: 260, color: 'rgba(56, 189, 248, 0.05)', border: '#0284c7', isPrivate: true },
+  { id: 'zone-conf', name: 'Conference Room', x: 270, y: 20, width: 510, height: 260, color: 'rgba(168, 85, 247, 0.05)', border: '#7e22ce', isPrivate: true },
+  { id: 'zone-work', name: 'Open Workstations', x: 20, y: 300, width: 760, height: 280, color: 'rgba(34, 197, 94, 0.05)', border: '#15803d', isPrivate: false }
 ];
 
 export default function OfficeCanvas() {
@@ -45,6 +45,7 @@ export default function OfficeCanvas() {
   const [isMicOn, setIsMicOn] = useState(true);
   const [participantCount, setParticipantCount] = useState(1);
   const [currentZone, setCurrentZone] = useState('Open Space');
+  const [isZonePrivate, setIsZonePrivate] = useState(false);
   const [fps, setFps] = useState(60);
 
   const handleToggleMic = () => {
@@ -56,7 +57,13 @@ export default function OfficeCanvas() {
     const found = OFFICE_ZONES.find(
       (z) => px >= z.x && px <= z.x + z.width && py >= z.y && py <= z.y + z.height
     );
-    setCurrentZone(found ? found.name : 'Open Space');
+    if (found) {
+      setCurrentZone(found.name);
+      setIsZonePrivate(found.isPrivate);
+    } else {
+      setCurrentZone('Open Space');
+      setIsZonePrivate(false);
+    }
   };
 
   const checkCollision = (newX, newY) => {
@@ -86,7 +93,7 @@ export default function OfficeCanvas() {
     if (isPeerWindow) {
       sessionStorage.setItem('client_role', 'B');
     }
-    const myPlayerName = isPeerWindow ? 'Player B' : 'Player A';
+    const myPlayerName = isPeerWindow ? 'Player A' : 'Prabhat Yadav';
     const myAvatarColor = isPeerWindow ? '#10b981' : '#2563eb';
 
     const socket = io(SOCKET_SERVER_URL, {
@@ -242,23 +249,24 @@ export default function OfficeCanvas() {
         ctx.stroke();
       }
 
-      // Office Zones
+      // Office Zones & Private Acoustic Outlines
       OFFICE_ZONES.forEach((zone) => {
         ctx.fillStyle = zone.color;
         ctx.fillRect(zone.x, zone.y, zone.width, zone.height);
         ctx.strokeStyle = zone.border;
-        ctx.lineWidth = 1.5;
-        ctx.setLineDash([4, 4]);
+        ctx.lineWidth = zone.isPrivate ? 2 : 1;
+        ctx.setLineDash(zone.isPrivate ? [6, 3] : [3, 3]);
         ctx.strokeRect(zone.x, zone.y, zone.width, zone.height);
         ctx.setLineDash([]);
 
-        ctx.font = '12px sans-serif';
+        ctx.font = 'bold 11px sans-serif';
         ctx.fillStyle = zone.border;
         ctx.textAlign = 'left';
-        ctx.fillText(zone.name.toUpperCase(), zone.x + 10, zone.y + 20);
+        const label = zone.isPrivate ? `🔒 ${zone.name.toUpperCase()} (ACOUSTIC ISOLATION)` : zone.name.toUpperCase();
+        ctx.fillText(label, zone.x + 10, zone.y + 20);
       });
 
-      // Furniture
+      // Furniture Obstacles
       obstacles.current.forEach((item) => {
         ctx.fillStyle = item.type === 'stage' ? '#334155' : item.type === 'whiteboard' ? '#f1f5f9' : '#475569';
         ctx.strokeStyle = '#64748b';
@@ -281,7 +289,7 @@ export default function OfficeCanvas() {
       ctx.lineWidth = 1.5;
       ctx.stroke();
 
-      // Local Player Speaking Wave Animation
+      // Local Speaking Pulse
       if (isSpeaking) {
         const localPulse = Math.sin(pulsePhase) * 6;
         ctx.beginPath();
@@ -299,12 +307,13 @@ export default function OfficeCanvas() {
       ctx.lineWidth = 2;
       ctx.stroke();
 
+      // Local Player Label
       ctx.font = '12px sans-serif';
       ctx.fillStyle = '#94a3b8';
       ctx.textAlign = 'center';
-      ctx.fillText(`You (${myPlayerName})`, position.current.x, position.current.y - AVATAR_RADIUS - 6);
+      ctx.fillText(myPlayerName, position.current.x, position.current.y - AVATAR_RADIUS - 6);
 
-      // Remote Peers Rendering with VAD & Spatial Volume Percentage
+      // Remote Peers Rendering
       peers.current.forEach((peer, peerId) => {
         peer.x += (peer.targetX - peer.x) * LERP_FACTOR;
         peer.y += (peer.targetY - peer.y) * LERP_FACTOR;
@@ -316,14 +325,12 @@ export default function OfficeCanvas() {
         if (inVoice) {
           volumePct = updateSpatialAudio(peerId);
 
-          // Proximity Aura Ring
           ctx.beginPath();
           ctx.arc(peer.x, peer.y, AVATAR_RADIUS + 6, 0, Math.PI * 2);
           ctx.strokeStyle = '#10b981';
           ctx.lineWidth = 2;
           ctx.stroke();
 
-          // Peer Speaking Wave Animation
           if (isPeerSpeaking) {
             const peerPulse = Math.sin(pulsePhase) * 6;
             ctx.beginPath();
@@ -342,16 +349,21 @@ export default function OfficeCanvas() {
         ctx.lineWidth = 2;
         ctx.stroke();
 
-        const displayName = (peer.username && !peer.username.startsWith('Player_') && !peer.username.startsWith('user-'))
-          ? peer.username
-          : (myPlayerName === 'Player A' ? 'Player B' : 'Player A');
+        // Sequential letter fallback (Player A, Player B, Player C...)
+        const peerLetters = ['A', 'B', 'C', 'D', 'E'];
+        const peerIndex = Array.from(peers.current.keys()).indexOf(peerId);
+        const letterFallback = `Player ${peerLetters[peerIndex % peerLetters.length]}`;
+
+        let displayName = peer.username;
+        if (!displayName || displayName === 'Prabhat Yadav' || displayName.startsWith('Player_') || displayName.startsWith('user-')) {
+          displayName = letterFallback;
+        }
 
         ctx.font = '12px sans-serif';
         ctx.fillStyle = inVoice ? '#34d399' : '#cbd5e1';
         ctx.textAlign = 'center';
         ctx.fillText(displayName, peer.x, peer.y - AVATAR_RADIUS - 6);
 
-        // Distance-based Audio Diagnostic Tag
         if (inVoice) {
           ctx.font = '10px sans-serif';
           ctx.fillStyle = isPeerSpeaking ? '#4ade80' : '#64748b';
@@ -377,7 +389,7 @@ export default function OfficeCanvas() {
         participantCount={participantCount}
         isMicOn={isMicOn}
         onToggleMic={handleToggleMic}
-        currentZone={currentZone}
+        currentZone={isZonePrivate ? `🔒 ${currentZone} (Private)` : currentZone}
         fps={fps}
       />
       <canvas

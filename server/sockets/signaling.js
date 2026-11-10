@@ -1,8 +1,21 @@
 // server/sockets/signaling.js
-const PROXIMITY_RADIUS = 100; // 100px voice earshot threshold
+const PROXIMITY_RADIUS = 100;
 
-// In-memory session tracking
+// Defined acoustic zones matching the frontend canvas
+const ZONES = [
+  { id: 'zone-lounge', name: 'Lounge Area', x: 20, y: 20, width: 230, height: 260, isPrivate: true },
+  { id: 'zone-conf', name: 'Conference Room', x: 270, y: 20, width: 510, height: 260, isPrivate: true },
+  { id: 'zone-work', name: 'Open Workstations', x: 20, y: 300, width: 760, height: 280, isPrivate: false }
+];
+
 const players = new Map();
+
+function getZoneForCoordinates(x, y) {
+  const zone = ZONES.find(
+    (z) => x >= z.x && x <= z.x + z.width && y >= z.y && y <= z.y + z.height
+  );
+  return zone || null;
+}
 
 function getDistance(p1, p2) {
   const dx = p1.x - p2.x;
@@ -10,11 +23,26 @@ function getDistance(p1, p2) {
   return Math.sqrt(dx * dx + dy * dy);
 }
 
+// Check acoustic reachability: private rooms isolate occupants from outside occupants
+function canHearEachOther(p1, p2) {
+  const z1 = getZoneForCoordinates(p1.x, p1.y);
+  const z2 = getZoneForCoordinates(p2.x, p2.y);
+
+  // If either player is inside a private room, both MUST be in the exact same room
+  if (z1?.isPrivate || z2?.isPrivate) {
+    if (!z1 || !z2 || z1.id !== z2.id) {
+      return false;
+    }
+  }
+
+  // Within 100px earshot
+  return getDistance(p1, p2) <= PROXIMITY_RADIUS;
+}
+
 module.exports = function initSignalingEngine(io) {
   io.on('connection', (socket) => {
     console.log(`[Socket Connected] ID: ${socket.id}`);
 
-    // 1. Player joins a room
     socket.on('join-room', ({ roomId, userId, username, initialCoordinates, avatarColor }) => {
       socket.join(roomId);
 
@@ -45,22 +73,18 @@ module.exports = function initSignalingEngine(io) {
       socket.to(roomId).emit('player-joined', newPlayer);
 
       existingPeers.forEach((other) => {
-        const dist = getDistance(newPlayer, other);
-        if (dist <= PROXIMITY_RADIUS) {
+        if (canHearEachOther(newPlayer, other)) {
           socket.emit('peer-entered-proximity', { peerSocketId: other.socketId, isInitiator: true });
           io.to(other.socketId).emit('peer-entered-proximity', { peerSocketId: socket.id, isInitiator: false });
         }
       });
     });
 
-    // 2. Player coordinates update & proximity check
     socket.on('player-move', ({ x, y }) => {
       const player = players.get(socket.id);
       if (!player) return;
 
-      const prevX = player.x;
-      const prevY = player.y;
-
+      const prevCoords = { x: player.x, y: player.y };
       player.x = x;
       player.y = y;
 
@@ -73,20 +97,22 @@ module.exports = function initSignalingEngine(io) {
       players.forEach((other, otherId) => {
         if (otherId === socket.id || other.roomId !== player.roomId) return;
 
-        const oldDist = getDistance({ x: prevX, y: prevY }, other);
-        const newDist = getDistance(player, other);
+        const previouslyHeard = canHearEachOther(prevCoords, other);
+        const currentlyHeard = canHearEachOther(player, other);
 
-        if (oldDist > PROXIMITY_RADIUS && newDist <= PROXIMITY_RADIUS) {
+        // Transition: Entered earshot/room boundary
+        if (!previouslyHeard && currentlyHeard) {
           socket.emit('peer-entered-proximity', { peerSocketId: other.socketId, isInitiator: true });
           io.to(other.socketId).emit('peer-entered-proximity', { peerSocketId: socket.id, isInitiator: false });
-        } else if (oldDist <= PROXIMITY_RADIUS && newDist > PROXIMITY_RADIUS) {
+        }
+        // Transition: Left earshot or walked outside private room
+        else if (previouslyHeard && !currentlyHeard) {
           socket.emit('peer-left-proximity', { peerSocketId: other.socketId });
           io.to(other.socketId).emit('peer-left-proximity', { peerSocketId: socket.id });
         }
       });
     });
 
-    // 3. WebRTC Signaling Relays
     socket.on('webrtc-offer', ({ targetSocketId, offer }) => {
       io.to(targetSocketId).emit('webrtc-offer', {
         senderSocketId: socket.id,
@@ -108,7 +134,6 @@ module.exports = function initSignalingEngine(io) {
       });
     });
 
-    // 4. Voice Activity Detection (VAD) Relay
     socket.on('voice-activity', ({ isSpeaking }) => {
       const player = players.get(socket.id);
       if (player) {
@@ -119,7 +144,6 @@ module.exports = function initSignalingEngine(io) {
       }
     });
 
-    // 5. Handle Disconnect
     socket.on('disconnect', () => {
       console.log(`[Socket Disconnected] ID: ${socket.id}`);
       const player = players.get(socket.id);
